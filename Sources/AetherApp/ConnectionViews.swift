@@ -173,7 +173,12 @@ struct MainWindowView: View {
         }.padding(16).frame(maxWidth: .infinity).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
     }
     func field(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) { Text(title).font(.system(size: 10)).foregroundStyle(Palette.muted); Text(value).font(.system(size: 11, design: .monospaced)).lineLimit(2).textSelection(.enabled) }.frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
+            Text(value).font(.system(size: 11, design: .monospaced))
+                .lineLimit(1).truncationMode(.tail).textSelection(.enabled)
+        }.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .help(value)
     }
     var trafficPanel: some View {
         VStack(spacing: 17) {
