@@ -87,6 +87,7 @@ final class AetherWindow: NSWindow {
     }
     @objc func showMain() {
         popover.performClose(nil)
+        NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -96,6 +97,11 @@ final class AetherWindow: NSWindow {
     @objc func diagnostics() { showSheet(.diagnostics) }
     @objc func connectAction() { store.performConnectionAction() }
     @objc func closeMainWindow() { window.close() }
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow, closingWindow === window else { return }
+        popover.performClose(nil)
+        NSApp.setActivationPolicy(.accessory)
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMain(); return true }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

@@ -19,7 +19,7 @@ enum ConnectionPhase: String {
     var title: String {
         switch self {
         case .disconnected: "未连接"
-        case .authorizing: "正在请求授权"
+        case .authorizing: "正在连接"
         case .awaitingHandshake: "等待对端握手"
         case .established: "隧道已建立"
         case .stopping: "正在断开"
@@ -183,6 +183,11 @@ struct UserAlert: Identifiable {
                 guard let self else { return }
                 self.operation = Task { if await self.disconnect() { await self.connect(id: target) } }
             }
+        } else if !isDemo && engine.requiresServiceSetup() {
+            ask(title: "设置连接服务", message: "首次设置需要管理员授权，之后连接和断开无需重复输入密码。更新应用后可能需要重新授权。", confirm: "设置并连接") { [weak self] in
+                guard let self else { return }
+                self.operation = Task { await self.connect(id: selectedID) }
+            }
         } else { operation = Task { await connect(id: selectedID) } }
     }
     func connect(id: UUID) async {
@@ -190,7 +195,7 @@ struct UserAlert: Identifiable {
         selectedID = id; activeID = id; errorMessage = ""; cancelRequested = false
         rxBytes = 0; txBytes = 0; lastStats = nil; lastHandshake = nil
         traffic = (0..<60).map { _ in TrafficPoint(download: 0, upload: 0) }; events.removeAll()
-        phase = .authorizing; log(isDemo ? "开始模拟连接" : "请求系统授权")
+        phase = .authorizing; log(isDemo ? "开始模拟连接" : "开始连接")
         if isDemo {
             try? await Task.sleep(for: .milliseconds(800))
             if cancelRequested { resetConnection(); return }

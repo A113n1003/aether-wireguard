@@ -11,7 +11,12 @@ struct BridgeRecord: Codable {
 /// This executable accepts only lifecycle actions for an app-owned session.
 /// It never accepts shell commands or config hooks and never prints tool stderr.
 struct Bridge {
-    static let toolEnvironment = ["PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "WG_HIDE_KEYS": "always"]
+    static var toolDirectory: String {
+        URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path == PrivilegedServiceLocation.bridge.path
+            ? PrivilegedServiceLocation.tools.path : "/opt/homebrew/bin"
+    }
+    static var toolEnvironment: [String: String] { ["PATH": "\(toolDirectory):/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "WG_HIDE_KEYS": "always"] }
+    static func tool(_ name: String) -> String { toolDirectory + "/" + name }
     let action: String
     let uid: uid_t
     let id: UUID
@@ -74,7 +79,7 @@ struct Bridge {
         try writeRootFile(Data(configuration.canonicalText.utf8), to: configurationURL)
         var raised = false, registered = false
         do {
-            let result = try run("/opt/homebrew/bin/bash", ["/opt/homebrew/bin/wg-quick", "up", configurationURL.path])
+            let result = try run(Self.tool("bash"), ["--noprofile", "--norc", Self.tool("wg-quick"), "up", configurationURL.path])
             // Even failed wg-quick may have created a socket: rollback uses only our generated name.
             raised = true
             guard result.status == 0 else { throw BridgeFailure.failed }
@@ -90,7 +95,7 @@ struct Bridge {
             try startMonitor()
             print(String(decoding: try JSONEncoder().encode(session), as: UTF8.self))
         } catch {
-            if raised { _ = try? run("/opt/homebrew/bin/bash", ["/opt/homebrew/bin/wg-quick", "down", configurationURL.path]) }
+            if raised { _ = try? run(Self.tool("bash"), ["--noprofile", "--norc", Self.tool("wg-quick"), "down", configurationURL.path]) }
             // If cleanup cannot remove a partially created interface, return its identity so
             // the app can persist ownership and offer an explicit disconnect.
             if let interface = try? readInterfaceName(), interfaceExists(interface) {
@@ -119,7 +124,7 @@ struct Bridge {
         if (try? readInterfaceName()) == record.session.interfaceName && interfaceExists(record.session.interfaceName) {
             let actual = try readInterfaceName()
             guard actual == record.session.interfaceName else { throw BridgeFailure.rejected }
-            let result = try run("/opt/homebrew/bin/bash", ["/opt/homebrew/bin/wg-quick", "down", configurationURL.path])
+            let result = try run(Self.tool("bash"), ["--noprofile", "--norc", Self.tool("wg-quick"), "down", configurationURL.path])
             guard result.status == 0 else { throw BridgeFailure.failed }
             for _ in 0..<30 {
                 if !interfaceExists(record.session.interfaceName) { break }; usleep(100_000)
@@ -164,8 +169,8 @@ struct Bridge {
         try process.run()
     }
     func sample(_ session: TunnelSession, alive: Bool = true) throws {
-        let transfers = alive ? try run("/opt/homebrew/bin/wg", ["show", session.interfaceName, "transfer"]) : (status: Int32(0), output: "")
-        let handshakes = alive ? try run("/opt/homebrew/bin/wg", ["show", session.interfaceName, "latest-handshakes"]) : (status: Int32(0), output: "")
+        let transfers = alive ? try run(Self.tool("wg"), ["show", session.interfaceName, "transfer"]) : (status: Int32(0), output: "")
+        let handshakes = alive ? try run(Self.tool("wg"), ["show", session.interfaceName, "latest-handshakes"]) : (status: Int32(0), output: "")
         guard session.startupIncomplete || (transfers.status == 0 && handshakes.status == 0) else { throw BridgeFailure.failed }
         let stats = EngineUtilities.parseStatistics(interfaceName: session.interfaceName, transfers: transfers.output, handshakes: handshakes.output, alive: alive)
         try writeRootFile(JSONEncoder().encode(stats), to: directory.appendingPathComponent("stats.json"), owner: uid)
@@ -189,10 +194,18 @@ struct Bridge {
         return (try? run("/sbin/ifconfig", [interface]).status) == 0
     }
     func verifyTools() throws {
-        for path in ["/opt/homebrew/bin/bash", "/opt/homebrew/bin/wg", "/opt/homebrew/bin/wg-quick", "/opt/homebrew/bin/wireguard-go"] {
+        if Self.toolDirectory == PrivilegedServiceLocation.tools.path {
+            for path in [PrivilegedServiceLocation.directory, PrivilegedServiceLocation.directory.appendingPathComponent("Tools"), PrivilegedServiceLocation.tools, PrivilegedServiceLocation.directory.appendingPathComponent("Tools/lib")] {
+                try ServiceIdentity.checkRootOwnership(path, directory: true)
+            }
+            for path in ["bash", "wg", "wg-quick", "wireguard-go"].map(Self.tool) {
+                try ServiceIdentity.checkRootOwnership(URL(fileURLWithPath: path))
+            }
+        }
+        for path in ["bash", "wg", "wg-quick", "wireguard-go"].map(Self.tool) {
             guard FileManager.default.isExecutableFile(atPath: path) else { throw BridgeFailure.failed }
         }
-        let bash = try run("/opt/homebrew/bin/bash", ["-c", "test \"${BASH_VERSINFO[0]}\" -ge 4"])
+        let bash = try run(Self.tool("bash"), ["--noprofile", "--norc", "-c", "test \"${BASH_VERSINFO[0]}\" -ge 4"])
         guard bash.status == 0 else { throw BridgeFailure.failed }
     }
     func run(_ executable: String, _ args: [String]) throws -> (status: Int32, output: String) {
@@ -212,6 +225,10 @@ struct Bridge {
             guard lstat(url.path, &info) == 0 else { throw BridgeFailure.rejected }
         }
         guard info.st_mode & S_IFMT == S_IFDIR, info.st_uid == 0, info.st_mode & 0o022 == 0 else { throw BridgeFailure.rejected }
+        try ServiceIdentity.checkRootOwnership(url, directory: true)
+        // launchd's 077 umask must not remove traversal for user-owned statistics.
+        // Directory contents remain unlistable; config and root records stay 0600.
+        guard chmod(url.path, 0o711) == 0 else { throw BridgeFailure.failed }
     }
     func acquireLock() throws -> Int32 {
         let fd = open(root.appendingPathComponent("lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
@@ -221,7 +238,7 @@ struct Bridge {
         return fd
     }
     func readUserConfiguration(_ path: String) throws -> Data {
-        let fd = open(path, O_RDONLY | O_NOFOLLOW)
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { throw BridgeFailure.rejected }; defer { close(fd) }
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_uid == uid, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1, info.st_mode & 0o077 == 0, info.st_size > 0, info.st_size <= 1_048_576 else { throw BridgeFailure.rejected }

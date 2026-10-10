@@ -14,8 +14,10 @@
 
 ## 当前信任边界
 
-- 连接和断开需要 macOS 管理员授权；应用不接收或保存管理员密码。
-- 开发版通过应用内 `AetherBridge` 调用本机 Homebrew 工具。授权意味着信任该 `.app` 和这些本地工具；当前没有已签名的安装级 privileged helper。
+- `main` 分支首次设置需系统管理员授权安装受限 LaunchDaemon；日常连接与断开使用 NSXPC，不保存密码、不配置 `NOPASSWD`。此变更尚未发布到 v0.1.0，本机安装、免密码开关、重启恢复及未授权客户端拒绝已验证；见 [验证记录](docs/validation.md)。
+- 服务只接受安装时绑定的本机 UID 与精确客户端 cdhash，客户端也验证 root 管理的服务 cdhash。接口仅开放 `ping` / `start` / `stop`，不接受任意 shell 命令或可执行路径。
+- 服务、Bridge、策略及冻结工具位于 root 管理的固定目录，不能由普通用户替换。首次设置仍需信任应用包与本机 Homebrew 工具来源；ad hoc 签名提供具体代码版本绑定，不提供 Developer ID 来源认证。
+- 更新或重新构建客户端后需重新管理员授权设置；安装或卸载前须断开 Aether 隧道。冻结工具不会随 Homebrew 自动升级，更新工具需重新设置。旧 AppleScript 授权仅保留用于断开旧会话。
 - 配置保存在本机 Keychain；helper 操作期间会使用权限 `0600` 的配置文件。
 - 不执行 WireGuard 配置中的 shell hooks；拒绝 `SaveConfig`、`Table` 等未支持扩展。
 - 统计读取 `transfer` 和 `latest-handshakes`，不使用会包含秘密的 `dump`。

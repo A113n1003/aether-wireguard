@@ -131,32 +131,36 @@ public actor WireGuardEngine {
     public init() {
         root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Aether/runtime", isDirectory: true)
     }
-    public func toolchainDescription() -> String { "wireguard-go · wg-quick · Homebrew Bash 4+ · 系统管理员授权" }
+    public func toolchainDescription() -> String { "WireGuard · 受限连接服务" }
+    public nonisolated func requiresServiceSetup() -> Bool {
+        (try? ServiceIdentity.installedRequirement(for: Bundle.main.bundleURL, uid: getuid())) == nil
+    }
     public func availabilityIssue() -> String? {
+        if !requiresServiceSetup() { return nil }
         for path in ["/opt/homebrew/bin/bash", "/opt/homebrew/bin/wg", "/opt/homebrew/bin/wg-quick", "/opt/homebrew/bin/wireguard-go"] {
             if !FileManager.default.isExecutableFile(atPath: path) { return "缺少 \(URL(fileURLWithPath: path).lastPathComponent)。需要安装 Homebrew bash、wireguard-tools、wireguard-go。" }
         }
-        return helperURL() == nil ? "未找到 AetherBridge。请使用完整 Aether.app。" : nil
+        return helperURL() == nil || Bundle.main.url(forResource: "install-helper", withExtension: "sh") == nil ? "未找到连接服务组件。请使用完整 Aether.app。" : nil
     }
     public func start(profileID: UUID, configuration: WGConfiguration) async throws -> TunnelSession {
         guard !busy, current == nil else { throw EngineError.operationFailed }
         if let issue = availabilityIssue() { throw EngineError.unavailable(issue) }
-        guard let helper = helperURL() else { throw EngineError.operationFailed }
+        guard helperURL() != nil else { throw EngineError.operationFailed }
         busy = true; defer { busy = false }
+        try await prepareService()
         let id = UUID()
         try ensureUserDirectory()
         let input = root.appendingPathComponent("\(id.uuidString).conf")
         try secureWrite(Data(configuration.canonicalText.utf8), to: input)
         defer { try? FileManager.default.removeItem(at: input) }
-        let args = ["start", "--uid", "\(uid)", "--id", id.uuidString, "--profile", profileID.uuidString, "--config", input.path]
-        let output = try await authorize(helper: helper, arguments: args)
+        let output = try await PrivilegedServiceClient.perform("start", sessionID: id, profileID: profileID, configurationPath: input.path)
         guard let session = try? JSONDecoder().decode(TunnelSession.self, from: Data(output.utf8)), session.id == id, session.profileID == profileID, EngineUtilities.valid(session) else { throw EngineError.operationFailed }
         // Once the helper reports success, keep a recoverable registry even if the caller task was cancelled.
         current = session
         do { try secureWrite(JSONEncoder().encode(session), to: registryURL) }
         catch {
             // A live session must never disappear from app ownership merely because persistence failed.
-            if (try? await authorize(helper: helper, arguments: ["stop", "--uid", "\(uid)", "--id", id.uuidString])) != nil {
+            if (try? await PrivilegedServiceClient.perform("stop", sessionID: id)) != nil {
                 current = nil; throw EngineError.operationFailed
             }
             // The helper also publishes a recoverable, non-secret ownership record.
@@ -167,7 +171,12 @@ public actor WireGuardEngine {
     }
     public func stop(_ session: TunnelSession) async throws {
         guard EngineUtilities.valid(session), let helper = helperURL() else { throw EngineError.invalidSession }
-        _ = try await authorize(helper: helper, arguments: ["stop", "--uid", "\(uid)", "--id", session.id.uuidString])
+        if requiresServiceSetup() {
+            // Only migration from the previous app needs one final legacy authorization.
+            _ = try await authorize(helper: helper, arguments: ["stop", "--uid", "\(uid)", "--id", session.id.uuidString])
+        } else {
+            _ = try await PrivilegedServiceClient.perform("stop", sessionID: session.id)
+        }
         current = nil
         try? FileManager.default.removeItem(at: registryURL)
     }
@@ -199,6 +208,33 @@ public actor WireGuardEngine {
         current = session; return session
     }
     private var registryURL: URL { root.appendingPathComponent("session.json") }
+    private func prepareService() async throws {
+        if !requiresServiceSetup() {
+            _ = try await PrivilegedServiceClient.perform("ping", sessionID: nil); return
+        }
+        guard current == nil,
+              let resources = Bundle.main.resourceURL,
+              let installer = Bundle.main.url(forResource: "install-helper", withExtension: "sh"),
+              let packager = Bundle.main.url(forResource: "package-helper-tools", withExtension: "py") else { throw EngineError.operationFailed }
+        try ensureUserDirectory()
+        let stage = root.appendingPathComponent("install-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: stage) }
+        for name in ["AetherService", "AetherBridge"] {
+            try FileManager.default.copyItem(at: resources.appendingPathComponent("ConnectionService/\(name)"), to: stage.appendingPathComponent(name))
+        }
+        try await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = [packager.path, stage.path]
+            process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"]
+            process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+            try process.run(); process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw EngineError.unavailable("无法准备连接服务，请检查本机 WireGuard 工具。") }
+        }.value
+        _ = try await authorize(helper: URL(fileURLWithPath: "/bin/bash"), arguments: [installer.path, stage.path, "\(uid)", Bundle.main.bundleURL.path])
+        _ = try await PrivilegedServiceClient.perform("ping", sessionID: nil)
+    }
     private func helperURL() -> URL? {
         let candidates = [Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/AetherBridge"), URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().appendingPathComponent("AetherBridge")]
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }

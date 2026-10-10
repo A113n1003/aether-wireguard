@@ -15,6 +15,8 @@ Aether 使用 SwiftUI + AppKit，直接导入已有 WireGuard 配置，为主窗
 
 > **v0.1.0 为开发预发布。** 安装包仅支持 Apple Silicon / macOS 14+，依赖 Homebrew WireGuard 工具；使用 ad hoc 签名，尚未做 Developer ID 签名或公证。真实网络端到端验收仍待完成。当前发行边界见下文与 [安全政策](SECURITY.md)。
 
+`main` 分支新增一次授权安装的连接服务；此改动尚未发布到 v0.1.0，已完成本机安装、连接 / 断开及客户端重启实测。下载旧 Release 仍可能在连接 / 断开时请求密码。
+
 ## 界面预览
 
 以下图片由实际 SwiftUI 组件在 `--demo` 下离屏渲染，使用虚构配置与模拟流量，不代表真实网络已连接。
@@ -31,9 +33,9 @@ Aether 使用 SwiftUI + AppKit，直接导入已有 WireGuard 配置，为主窗
 - **主窗口与菜单栏面板**：原生 `NSPopover`，连接光环、状态、实时流量和隧道列表共享同一数据源。
 - **三种配置入口**：导入 `.conf`、粘贴原文、单 Peer 表单。多 Peer / 高级字段使用原文编辑，避免表单丢字段。
 - **系统 Keychain**：完整配置存于本机钥匙串，磁盘索引仅含名称、UUID 和创建日期；密钥默认隐藏。
-- **隧道生命周期**：系统管理员授权、连接 / 取消 / 断开、配置切换确认、应用重启后的已登记会话恢复。
+- **隧道生命周期**：首次管理员授权安装连接服务，日常连接 / 断开通过受限后台服务执行；支持取消、配置切换确认与应用重启后的已登记会话恢复。
 - **连接信息**：真实 WireGuard 收发计数、握手时间、接口 / 路由 / DNS 摘要、最近 60 秒流量图与脱敏事件日志。
-- **桌面交互**：背景拖动、自定义关闭按钮、键盘快捷键；关闭主窗口后保留菜单栏。
+- **桌面交互**：背景拖动、自定义关闭按钮、键盘快捷键；关闭主窗口后隐藏 Dock 图标并保留菜单栏，重新打开主窗口时恢复 Dock 图标。
 
 当前一次管理一个活动隧道。Aether 是独立社区项目，与 WireGuard 官方没有隶属关系。
 
@@ -45,7 +47,7 @@ Aether 使用 SwiftUI + AppKit，直接导入已有 WireGuard 配置，为主窗
 | --- | --- |
 | 系统 | macOS 14 或更新版本 |
 | 发行架构 | Apple Silicon (`arm64`) |
-| WireGuard 运行时 | Homebrew `bash`、`wireguard-tools`、`wireguard-go` |
+| 首次设置 | Apple Command Line Tools 的 `/usr/bin/python3` 和 Homebrew `bash`、`wireguard-tools`、`wireguard-go` |
 | 工具路径 | `/opt/homebrew/bin`；当前 Intel Homebrew 路径不受支持 |
 | 服务端 | 自己有权使用的有效 WireGuard 配置；Aether 不提供 VPN 服务 |
 
@@ -68,7 +70,21 @@ macOS 自带 Bash 3.2 不满足 Darwin `wg-quick` 的要求，因此使用 Homeb
 
 3. 解压，将 `Aether.app` 拷贝到 `/Applications`，打开应用。
 4. 点击「添加隧道」或「导入配置」，保存自己的配置，再点击连接。
-5. 连接 / 断开时由 macOS 请求管理员授权。密码只交给系统，应用不保存密码。
+5. v0.1.0 的连接 / 断开由 macOS 请求管理员授权。密码只交给系统，应用不保存密码。
+
+### 源码版首次设置连接服务
+
+首次点击连接会设置本机后台服务，并由 macOS 请求一次管理员授权。应用将本机 Homebrew 工具及必要的 Bash 动态库复制到 root 管理的固定目录；之后连接和断开通过受限 NSXPC 接口执行，无需每次请求密码。服务只接受设置时绑定的用户和该版本 Aether 的代码签名哈希。
+
+更新或重新构建 Aether 后，需要重新授权设置服务。首次安装或更新前，请先断开已有 Aether 隧道；其他 VPN 不受此安装操作影响。设置不保存密码，也不添加 `NOPASSWD` 规则。本机已验证安装、免密码开关及重启后的免密码操作；覆盖范围见 [验证记录](docs/validation.md)。
+
+卸载服务前先断开 Aether 隧道，然后执行：
+
+```bash
+sudo /bin/bash /Applications/Aether.app/Contents/Resources/uninstall-helper.sh
+```
+
+若应用放在其他目录，替换命令中的应用路径。卸载保留用户配置。
 
 当前安装包未公证，Gatekeeper 可能阻止打开。该发行版不提供通过安全来源验证的 Developer ID 签名；若不接受这一边界，可按下一节审阅并自行构建源码。不要全局关闭 Gatekeeper。
 
@@ -102,7 +118,7 @@ dist/Aether.app/Contents/MacOS/Aether --demo
 swift test
 ```
 
-若本机 CLT 缺少 XCTest 或 SwiftPM `BuildServerProtocol.framework`，使用 `Scripts/check.sh` 执行 25 项独立断言，覆盖配置解析 / 规范化 / 脱敏、命令转义、AppleEvent 参数传递与授权取消、统计聚合、会话校验与兼容。独立检查不替代实际执行 XCTest；CI 在完整 Xcode 中同时运行两者。
+若本机 CLT 缺少 XCTest 或 SwiftPM `BuildServerProtocol.framework`，使用 `Scripts/check.sh` 执行独立断言，覆盖配置解析 / 规范化 / 脱敏、命令转义、AppleEvent 参数传递与授权取消、统计聚合、会话校验及连接服务的身份约束。独立检查不替代实际执行 XCTest；CI 在完整 Xcode 中同时运行两者。
 
 ## 使用与快捷键
 
@@ -127,9 +143,11 @@ flowchart LR
     UI[SwiftUI 主窗口 / 菜单栏] --> Store[AppStore]
     Store --> Keychain[系统 Keychain]
     Store --> Engine[WireGuardEngine]
-    Engine --> Auth[macOS 管理员授权]
-    Auth --> Bridge[AetherBridge]
-    Bridge --> Tools[wg-quick / wg / wireguard-go]
+    Engine --> Service[NSXPC / AetherService]
+    Auth[首次管理员授权] --> Install[root 安装 / UID + cdhash 策略]
+    Install --> Service
+    Service --> Bridge[AetherBridge]
+    Bridge --> Tools[root 管理的 wg-quick / wg / wireguard-go]
     Tools --> Network[utun / 系统路由 / DNS]
     Bridge --> Stats[脱敏统计文件]
     Stats --> Store
@@ -139,7 +157,8 @@ flowchart LR
 | --- | --- |
 | `Sources/AetherApp` | SwiftUI / AppKit 界面、状态和生命周期 |
 | `Sources/AetherCore` | 配置解析、Keychain、后端与统计 |
-| `Sources/AetherBridge` | 授权后的会话操作与后台统计 |
+| `Sources/AetherBridge` | 受限会话操作与后台统计 |
+| `Sources/AetherService` | LaunchDaemon、客户端身份校验与固定 NSXPC 接口 |
 | `Tests/AetherCoreTests` | XCTest 回归测试 |
 | `Scripts` | 无第三方 Swift 包的构建、检查与打包工具 |
 | `.github/workflows` | CI、tag 构建与预发布 |
@@ -151,7 +170,8 @@ flowchart LR
 
 - 未完成真实服务器握手、IPv4/IPv6 路由、DNS 恢复及长期重连的端到端验收。
 - 路由与系统网络服务 DNS 委托给 `wg-quick`；Aether 不验证 DNS 恢复完成。
-- 当前信任边界包含应用完整性和本机 Homebrew 工具；没有安装级已签名 privileged helper。
+- 首次设置需信任本机应用与 Homebrew 工具来源。安装后的服务和工具由 root 管理；ad hoc 签名哈希绑定具体版本，不提供 Developer ID 来源认证。
+- 连接服务绑定一个本机用户和一个应用版本；更新需重新管理员授权，目前没有自动迁移。
 - 不包含 Kill Switch、自动连接、按应用分流、DNS 防泄漏保证或独立 NetworkExtension。
 - 不执行配置 hooks，拒绝 `PreUp` / `PostUp` / `PreDown` / `PostDown` / `SaveConfig` / `Table` 等扩展。
 - 当前只发布 `arm64`，未验收 Intel；没有自动更新器、App Store 发行或安装器。
@@ -161,6 +181,8 @@ flowchart LR
 | 情况 | 下一步 |
 | --- | --- |
 | 缺少工具 | 检查 `brew install bash wireguard-tools wireguard-go` 与 `/opt/homebrew/bin` |
+| 连接服务无法设置 | 检查 Apple CLT 的 `/usr/bin/python3`，先断开已有 Aether 隧道，再重试设置 |
+| 更新后再次授权 | 服务绑定应用版本的 cdhash；重新设置服务后，日常开关继续使用后台服务 |
 | 钥匙串不可访问 | 解锁登录钥匙串，查看系统提示后重试 |
 | 等待握手 | 检查配置、服务器、UDP 连通和时间；接口启动不等于服务端响应 |
 | 配置导入失败 | 查看就地错误；检查必填字段、32 字节 Base64 密钥、CIDR、IPv6 Endpoint 格式及不支持的 hooks |
@@ -172,4 +194,4 @@ flowchart LR
 
 请先阅读 [贡献指南](CONTRIBUTING.md) 与 [行为准则](CODE_OF_CONDUCT.md)。当前优先补齐真实网络验收、权限边界和发行签名；后续方向见 [路线图](docs/roadmap.md)。
 
-原创源码和图标采用 [MIT](LICENSE)。外部 WireGuard/Bash 工具使用各自的许可证，Release 不打包这些程序；见 [第三方说明](THIRD_PARTY_NOTICES.md)。
+原创源码和图标采用 [MIT](LICENSE)。外部 WireGuard/Bash 工具及其动态库使用各自的许可证，公共 Release 不打包这些程序；首次设置仅在本机复制所需运行时。见 [第三方说明](THIRD_PARTY_NOTICES.md)。
