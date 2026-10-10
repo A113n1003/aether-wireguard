@@ -88,7 +88,7 @@ struct MainWindowView: View {
                         if let config = store.selectedConfiguration { configurationStrip(config) }
                         trafficPanel
                     }.padding(.horizontal, 36).padding(.bottom, 16)
-                }
+                }.scrollIndicators(.hidden)
                 HStack {
                     if store.isDemo {
                         StatusDot(color: Palette.amber)
