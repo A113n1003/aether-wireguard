@@ -61,7 +61,7 @@ dist/Aether.app/Contents/MacOS/Aether --demo   # no real tunnel or config writes
 swift test                                  # full Xcode
 ```
 
-Some Command Line Tools installations lack XCTest/SwiftPM frameworks. `Scripts/check.sh` provides 18 independent assertions, but does not claim to run XCTest. CI runs both using full Xcode.
+Some Command Line Tools installations lack XCTest/SwiftPM frameworks. `Scripts/check.sh` provides 25 independent assertions, including inert AppleEvent argument handling and authorization cancellation, but does not claim to run XCTest. CI runs both using full Xcode.
 
 ## Current limits
 

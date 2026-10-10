@@ -102,7 +102,7 @@ dist/Aether.app/Contents/MacOS/Aether --demo
 swift test
 ```
 
-若本机 CLT 缺少 XCTest 或 SwiftPM `BuildServerProtocol.framework`，使用 `Scripts/check.sh` 执行 18 项独立断言，覆盖配置解析 / 规范化 / 脱敏、命令转义、统计聚合、会话校验与兼容。独立检查不替代实际执行 XCTest；CI 在完整 Xcode 中同时运行两者。
+若本机 CLT 缺少 XCTest 或 SwiftPM `BuildServerProtocol.framework`，使用 `Scripts/check.sh` 执行 25 项独立断言，覆盖配置解析 / 规范化 / 脱敏、命令转义、AppleEvent 参数传递与授权取消、统计聚合、会话校验与兼容。独立检查不替代实际执行 XCTest；CI 在完整 Xcode 中同时运行两者。
 
 ## 使用与快捷键
 

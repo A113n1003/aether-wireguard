@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Carbon
 
 public struct TunnelSession: Codable, Sendable, Equatable {
     public let id: UUID
@@ -48,8 +49,25 @@ public enum EngineError: Error, LocalizedError, Sendable {
     }
 }
 
-/// Small pure helpers are shared with tests and the privileged bridge.
+/// Helpers shared with tests and the privileged bridge; AppleEvent creation stays on the main thread.
 public enum EngineUtilities {
+    // Keep the compiled script unchanged: macOS authorizes a script, not each Bridge command.
+    public static let authorizationScriptSource = """
+    on authorize_command(commandText)
+        return do shell script commandText with administrator privileges without altering line endings
+    end authorize_command
+    """
+    @MainActor public static func authorizationEvent(command: String) -> NSAppleEventDescriptor {
+        let event = NSAppleEventDescriptor(eventClass: AEEventClass(kASAppleScriptSuite), eventID: AEEventID(kASSubroutineEvent), targetDescriptor: NSAppleEventDescriptor.currentProcess(), returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        event.setParam(NSAppleEventDescriptor(string: "authorize_command"), forKeyword: AEKeyword(keyASSubroutineName))
+        let arguments = NSAppleEventDescriptor.list()
+        arguments.insert(NSAppleEventDescriptor(string: command), at: 1)
+        event.setParam(arguments, forKeyword: AEKeyword(keyDirectObject))
+        return event
+    }
+    public static func authorizationError(number: Int?) -> EngineError {
+        number == -128 ? .authorizationCancelled : .operationFailed
+    }
     public static func logicalName(for id: UUID) -> String {
         "ae" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(10)
     }
@@ -78,6 +96,30 @@ public enum EngineUtilities {
             if fields.count == 2, let stamp = TimeInterval(fields[1]), stamp.isFinite, stamp > 0 { newest = max(newest, stamp) }
         }
         return TunnelStatistics(interfaceName: interfaceName, rxBytes: rx, txBytes: tx, latestHandshake: newest > 0 ? Date(timeIntervalSince1970: newest) : nil, updatedAt: now, alive: alive)
+    }
+}
+
+/// NSAppleScript is confined to the main thread and one unchanged instance.
+/// System authorization expires (normally after five minutes); no password is retained by Aether.
+@MainActor private final class AdministratorAuthorization {
+    static let shared = AdministratorAuthorization()
+    private var script: NSAppleScript?
+    private init() {}
+
+    func execute(command: String) throws -> String {
+        if script == nil {
+            guard let candidate = NSAppleScript(source: EngineUtilities.authorizationScriptSource) else { throw EngineError.operationFailed }
+            var error: NSDictionary?
+            guard candidate.compileAndReturnError(&error) else { throw EngineError.operationFailed }
+            script = candidate
+        }
+        var error: NSDictionary?
+        let result = script?.executeAppleEvent(EngineUtilities.authorizationEvent(command: command), error: &error)
+        guard error == nil, let output = result?.stringValue else {
+            // Do not expose AppleScript messages: shell stderr may contain configuration details.
+            throw EngineUtilities.authorizationError(number: (error?[NSAppleScript.errorNumber] as? NSNumber)?.intValue)
+        }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -184,21 +226,6 @@ public actor WireGuardEngine {
     }
     private func authorize(helper: URL, arguments: [String]) async throws -> String {
         let command = ([helper.path] + arguments).map(EngineUtilities.shellQuote).joined(separator: " ")
-        let source = "do shell script \(EngineUtilities.appleScriptQuote(command)) with administrator privileges"
-        return try await Task.detached(priority: .userInitiated) {
-            let process = Process(), pipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", source]
-            process.standardOutput = pipe; process.standardError = pipe
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            let output = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard process.terminationStatus == 0 else {
-                if output.contains("(-128)") || output.contains("User canceled") { throw EngineError.authorizationCancelled }
-                throw EngineError.operationFailed
-            }
-            return output
-        }.value
+        return try await AdministratorAuthorization.shared.execute(command: command)
     }
 }

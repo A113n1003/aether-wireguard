@@ -1,4 +1,5 @@
 import Foundation
+import Carbon
 import AetherCore
 
 func check(_ condition: @autoclosure () -> Bool, _ description: String) {
@@ -30,3 +31,27 @@ check(!legacy.startupIncomplete, "legacy session defaults to complete startup")
 let partial = TunnelSession(id: id, profileID: id, logicalName: "aeabcdef0123", interfaceName: "utun42", startupIncomplete: true)
 let decoded = try JSONDecoder().decode(TunnelSession.self, from: JSONEncoder().encode(partial))
 check(decoded.startupIncomplete, "partial startup survives session recovery")
+MainActor.assumeIsolated {
+    // Compiling the privileged handler does not execute it or request authorization.
+    let fixedScript = NSAppleScript(source: EngineUtilities.authorizationScriptSource)!
+    var error: NSDictionary?
+    check(fixedScript.compileAndReturnError(&error), "fixed authorization handler compiles without execution")
+    let echo = NSAppleScript(source: "on authorize_command(commandText)\nreturn commandText\nend authorize_command")!
+    for command in ["'Bridge path' 'start' '--config' 'a.conf'", "'Bridge path' 'stop'\n\" & do shell script \"id\" & \"\\中文"] {
+        error = nil
+        let event = EngineUtilities.authorizationEvent(command: command)
+        check(event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.atIndex(1)?.stringValue == command, "authorization arguments remain AppleEvent data")
+        check(echo.executeAppleEvent(event, error: &error).stringValue == command && error == nil, "unchanged handler receives varying inert commands")
+    }
+    let cancelled = NSAppleScript(source: "on authorize_command(commandText)\nerror \"cancelled\" number -128\nend authorize_command")!
+    error = nil
+    _ = cancelled.executeAppleEvent(EngineUtilities.authorizationEvent(command: "inert"), error: &error)
+    let number = (error?[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+    if case .authorizationCancelled = EngineUtilities.authorizationError(number: number) {
+        check(number == -128, "structured cancellation maps to authorization cancellation")
+    } else { fatalError("structured cancellation mapping") }
+}
+for number: Int? in [nil, 1, -600] {
+    if case .operationFailed = EngineUtilities.authorizationError(number: number) {} else { fatalError("generic authorization failure mapping") }
+}
+check(EngineUtilities.authorizationError(number: 1).errorDescription == EngineError.operationFailed.errorDescription, "authorization errors expose only redacted message")

@@ -47,3 +47,21 @@ PersistentKeepalive = 25
 配置原文默认隐藏秘密；「显示密钥并编辑」会展示完整内容，请在本机私密环境使用。截图、Issue 和日志附件不得包含 PrivateKey 或 PresharedKey。
 
 以下扩展被明确拒绝：`PreUp`、`PostUp`、`PreDown`、`PostDown`、`SaveConfig`、`Table`，以及所有未知字段。
+
+## 已创建接口，但无法访问
+
+接口创建、WireGuard 握手、目标地址可达是三个不同的检查。WireGuard 在有待发送流量时才主动握手；没有流量且未设 `PersistentKeepalive` 时，暂时没有握手不能直接判定密钥或服务器有误。需要 NAT 保活时可按用途设置 `PersistentKeepalive = 25`，它不会修复路由覆盖。
+
+多个 VPN 并存时，`AllowedIPs = 0.0.0.0/0` 不保证所有 IPv4 流量实际进入本隧道。系统已有的更具体网段或主机路由可能优先；DNS 地址也可能被现有主机路由送往物理网卡。使用诊断面板确认 Aether 的实际 `utunN`，然后在本机查看选路：
+
+```bash
+route -n get <目标 IP>
+route -n get <配置中的 DNS IP>
+route -n get <Endpoint 解析后的 IP>
+```
+
+业务地址和隧道 DNS 应进入期望接口；Endpoint 的外层 UDP 应有可达的隧道外路径。不要将 UDP `nc` 发送成功当作服务器回应。
+
+绑定 Aether 接口探测可区分隧道能力与普通选路，例如 `ping -b utunN -c 3 <隧道内地址>`。若绑定探测获得握手和响应、普通访问失败，应检查路由覆盖或 DNS，而不是重新生成密钥。绑定探测成功不代表默认路由已修复。
+
+修复取决于用途：只访问远端 LAN 时，明确目标网段后使用分流配置；要求全局连接时，协调其他 VPN 的路由策略。Aether 不应自动删除其他 VPN 的路由或退出其他客户端。

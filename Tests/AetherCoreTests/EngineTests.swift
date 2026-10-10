@@ -1,7 +1,39 @@
 import XCTest
+import Carbon
 @testable import AetherCore
 
 final class EngineTests: XCTestCase {
+    @MainActor func testAuthorizationUsesFixedCompiledHandlerAndDataArguments() throws {
+        let fixed = try XCTUnwrap(NSAppleScript(source: EngineUtilities.authorizationScriptSource))
+        var error: NSDictionary?
+        XCTAssertTrue(fixed.compileAndReturnError(&error)) // No privileged execution.
+        let echo = try XCTUnwrap(NSAppleScript(source: "on authorize_command(commandText)\nreturn commandText\nend authorize_command"))
+        for command in ["'Bridge path' 'start' '--config' 'a.conf'", "'Bridge path' 'stop'\n\" & do shell script \"id\" & \"\\中文"] {
+            error = nil
+            let event = EngineUtilities.authorizationEvent(command: command)
+            XCTAssertEqual(event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.atIndex(1)?.stringValue, command)
+            XCTAssertEqual(echo.executeAppleEvent(event, error: &error).stringValue, command)
+            XCTAssertNil(error)
+        }
+    }
+    @MainActor func testAuthorizationCancellationUsesStructuredErrorNumber() throws {
+        let script = try XCTUnwrap(NSAppleScript(source: "on authorize_command(commandText)\nerror \"cancelled\" number -128\nend authorize_command"))
+        var error: NSDictionary?
+        _ = script.executeAppleEvent(EngineUtilities.authorizationEvent(command: "inert"), error: &error)
+        let number = (error?[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+        XCTAssertEqual(number, -128)
+        guard case .authorizationCancelled = EngineUtilities.authorizationError(number: number) else {
+            return XCTFail("Cancellation must stay distinguishable from operation failure")
+        }
+    }
+    func testAuthorizationFailuresUseRedactedError() {
+        for number: Int? in [nil, 1, -600] {
+            guard case .operationFailed = EngineUtilities.authorizationError(number: number) else {
+                return XCTFail("Unknown errors must not be interpreted as cancellation")
+            }
+        }
+        XCTAssertEqual(EngineUtilities.authorizationError(number: 1).errorDescription, EngineError.operationFailed.errorDescription)
+    }
     func testLogicalInterfaceIsStableAndWithinDarwinLimit() {
         let id = UUID(uuidString: "ABCDEF01-2345-6789-ABCD-EF0123456789")!
         XCTAssertEqual(EngineUtilities.logicalName(for: id), "aeabcdef0123")

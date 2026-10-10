@@ -4,7 +4,9 @@
 
 ## 权限与数据
 
-连接、断开由系统 `do shell script … with administrator privileges` 授权。系统密码只交给 macOS，应用不保存密码。每个操作只允许 `start`、`stop` 或内部 `monitor`；参数分别进行 shell quoting 与 AppleScript 字符串转义，私钥不进入参数或日志。
+连接、断开由系统 `do shell script … with administrator privileges` 授权。系统密码只交给 macOS，应用不保存密码。主应用复用固定编译的 `NSAppleScript`，用 AppleEvent 参数调用同一个 handler；Bridge 命令的每个参数先做 shell quoting，配置内容和私钥不进入命令参数或日志。Bridge 只接受 `start`、`stop` 或内部 `monitor`。
+
+根据 [Apple TN2065](https://developer.apple.com/library/archive/technotes/tn2065/_index.html)，同一未修改脚本的授权约缓存 5 分钟。每次修改脚本源码或重建 `osascript` 进程无法可靠复用此上下文；固定脚本解决短时间开关重复提示，不能保证整个应用会话或永久免密码。缓存过期、退出重开或系统策略变化仍可能请求授权。
 
 应用将配置写入权限 `0600` 的临时输入文件。helper 再解析一次标准 WireGuard 字段，拒绝 hooks、`SaveConfig` 等扩展，复制到 root-owned `/var/run/aether-<UID>/<session UUID>/ae<短ID>.conf`。目录 `0711`，配置和会话记录 `0600`。helper 只断开此处注册的会话，不扫描、接管或关闭其他 VPN。
 
@@ -12,7 +14,7 @@
 
 主应用使用本地权限 `0600` 会话注册文件恢复状态；helper 另外发布不含密钥、权限 `0600` 的 `current.json` 所有权摘要，应用本地写盘失败也可以恢复。接口消失后 monitor 发布终止样本并清理 root 活动记录，应用读到终止样本会解除当前会话。单次采样失败会重试，避免接口删除与采样竞态留下永久过期状态。
 
-授权和命令通过后台 Task 执行，不阻塞主线程。接口创建成功与远端握手成功是不同状态；速率应由真实计数差分计算，握手为零表示等待握手。启动部分成功且自动回滚未完成时，会话标记 `startupIncomplete`，保留真实所有权、持续监控与断开入口，界面应显示“启动未完成，请断开”。
+`NSAppleScript` 在 MainActor 上串行执行，系统授权和 helper 命令返回之前此调用是同步的；不要把它误述为全程不阻塞主线程。接口创建成功与远端握手成功是不同状态；速率应由真实计数差分计算，握手为零表示等待握手。启动部分成功且自动回滚未完成时，会话标记 `startupIncomplete`，保留真实所有权、持续监控与断开入口，界面应显示“启动未完成，请断开”。
 
 ## 状态语义
 
