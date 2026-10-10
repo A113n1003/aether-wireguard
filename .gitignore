@@ -1,0 +1,23 @@
+# Swift / Xcode
+.build/
+.swiftpm/
+.native-build/
+.backend-build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+# Build and local QA
+dist/
+outputs/
+.omx/
+.DS_Store
+# Never commit real VPN profiles or secrets
+*.conf
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.mobileprovision
+*.provisionprofile

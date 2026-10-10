@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-and-build:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          swift --version
+      - name: SwiftPM tests
+        run: swift test
+      - name: Independent core checks
+        run: Scripts/check.sh
+      - name: Build and verify app
+        run: Scripts/build.sh
+      - name: Package CI app
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Aether.app dist/Aether-ci-macos-arm64.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Aether-ci-macos-arm64
+          path: dist/Aether-ci-macos-arm64.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability / 安全漏洞
+    url: https://github.com/A113n1003/aether-wireguard/security/advisories/new
+    about: 请通过私密渠道报告，不要公开密钥或漏洞利用细节。
