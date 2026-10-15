@@ -71,6 +71,20 @@ cases.append(("error descriptions do not leak secret", {
         try check(!error.localizedDescription.contains(secret))
     }
 }))
+cases.append(("DNS is opt-in and runtime copy preserves all other fields", {
+    let extraKey = Data(repeating: 4, count: 32).base64EncodedString()
+    let source = valid.replacingOccurrences(of: "DNS = 1.1.1.1", with: "DNS = 1.1.1.1, fd00::53, corp.example\nMTU = 1420\nListenPort = 51821")
+        + "\n[Peer]\nPublicKey = \(extraKey)\nPresharedKey = \(extraKey)\nAllowedIPs = 192.168.50.0/24\n"
+    let config = try WGConfiguration(text: source)
+    let runtime = try config.forConnection()
+    try check(runtime.dns.isEmpty)
+    try check(!runtime.canonicalText.contains("DNS ="))
+    try check(runtime.canonicalText == config.canonicalText.replacingOccurrences(of: "DNS = 1.1.1.1, fd00::53, corp.example\n", with: ""))
+    try check(runtime.peers.count == 2)
+    try check(config.dns.count == 3)
+    try check(config.forConnection(useTunnelDNS: true).canonicalText == config.canonicalText)
+    try check(runtime.forConnection().canonicalText == runtime.canonicalText)
+}))
 var failures = 0
 for (name, run) in cases {
     do { try run(); print("PASS: \(name)") }

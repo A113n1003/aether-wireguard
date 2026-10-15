@@ -8,7 +8,7 @@ Aether 只接受标准 WireGuard 数据字段，不执行配置内的命令。�
 | --- | --- | --- |
 | Interface | `PrivateKey` | 必填，32 字节标准 Base64 |
 | Interface | `Address` | 必填，IPv4/IPv6 CIDR，多个值逗号分隔 |
-| Interface | `DNS` | 可选，IP 或搜索域列表 |
+| Interface | `DNS` | 可选，IP 或搜索域列表；需在偏好设置开启「使用隧道 DNS」才会应用 |
 | Interface | `MTU` | 可选，576–65535 |
 | Interface | `ListenPort` | 可选，0–65535 |
 | Peer | `PublicKey` | 必填，32 字节标准 Base64，各 Peer 不可重复 |
@@ -65,3 +65,9 @@ route -n get <Endpoint 解析后的 IP>
 绑定 Aether 接口探测可区分隧道能力与普通选路，例如 `ping -b utunN -c 3 <隧道内地址>`。若绑定探测获得握手和响应、普通访问失败，应检查路由覆盖或 DNS，而不是重新生成密钥。绑定探测成功不代表默认路由已修复。
 
 修复取决于用途：只访问远端 LAN 时，明确目标网段后使用分流配置；要求全局连接时，协调其他 VPN 的路由策略。Aether 不应自动删除其他 VPN 的路由或退出其他客户端。
+
+## 控制隧道 DNS
+
+当前源码版本在「偏好设置 → 使用隧道 DNS」提供全局开关，默认关闭。关闭时，连接用的配置副本会移除 `DNS` 字段，`wg-quick` 不会据此更改 macOS DNS 服务器或搜索域；导入及钥匙串中保存的原配置保持完整。开启后才使用配置中的 DNS。切换设置不影响活动连接，重新连接后生效。
+
+此设置不更改 `AllowedIPs`，也不阻止其他 VPN、DHCP 或系统服务修改 DNS。公开旧 Release 不一定包含该入口。

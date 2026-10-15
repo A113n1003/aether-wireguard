@@ -15,6 +15,20 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertTrue(config.canonicalText.contains("ListenPort = 51821"))
     }
 
+    func testDNSIsOptInAndSavedConfigurationRemainsUnchanged() throws {
+        let extraKey = Data(repeating: 4, count: 32).base64EncodedString()
+        let source = valid.replacingOccurrences(of: "DNS = 1.1.1.1", with: "DNS = 1.1.1.1, fd00::53, corp.example\nMTU = 1420\nListenPort = 51821")
+            + "\n[Peer]\nPublicKey = \(extraKey)\nPresharedKey = \(extraKey)\nAllowedIPs = 192.168.50.0/24\n"
+        let original = try WGConfiguration(text: source)
+        let runtime = try original.forConnection()
+        XCTAssertTrue(runtime.dns.isEmpty)
+        XCTAssertEqual(runtime.canonicalText, original.canonicalText.replacingOccurrences(of: "DNS = 1.1.1.1, fd00::53, corp.example\n", with: ""))
+        XCTAssertEqual(runtime.peers.count, 2)
+        XCTAssertEqual(original.dns.count, 3)
+        XCTAssertEqual(try original.forConnection(useTunnelDNS: true).canonicalText, original.canonicalText)
+        XCTAssertEqual(try runtime.forConnection().canonicalText, runtime.canonicalText)
+    }
+
     func testRejectsCommandAndUnknownFields() {
         for line in ["PostUp = touch /tmp/injected", "PreDown = $(id)", "Table = auto", "SaveConfig = true", "Unknown = anything"] {
             XCTAssertThrowsError(try WGConfiguration(text: valid.replacingOccurrences(of: "DNS = 1.1.1.1", with: line)))

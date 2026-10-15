@@ -50,13 +50,15 @@ struct SettingsView: View {
                     .background(Palette.cyan.opacity(0.08), in: RoundedRectangle(cornerRadius: 13))
                 VStack(alignment: .leading, spacing: 5) {
                     Text("偏好设置").font(.system(size: 21, weight: .semibold))
-                    Text("界面与菜单栏").font(.system(size: 11)).foregroundStyle(Palette.muted)
+                    Text("连接、界面与菜单栏").font(.system(size: 11)).foregroundStyle(Palette.muted)
                 }
                 Spacer()
                 WindowCloseButton(action: { dismiss() }, label: "关闭偏好设置", hint: "关闭偏好设置")
             }.padding(.bottom, 24)
 
             VStack(spacing: 0) {
+                settingRow(symbol: "network", title: "使用隧道 DNS", subtitle: "关闭后保留系统 DNS，重新连接后生效", value: $store.useTunnelDNS)
+                Rectangle().fill(Palette.line.opacity(0.7)).frame(height: 1).padding(.leading, 64)
                 settingRow(symbol: "menubar.rectangle", title: "菜单栏实时速率", subtitle: "在菜单栏显示当前下载速度", value: $store.showStatusText)
                 Rectangle().fill(Palette.line.opacity(0.7)).frame(height: 1).padding(.leading, 64)
                 settingRow(symbol: "waveform.path", title: "减少动态效果", subtitle: "关闭连接光环动画", value: $store.reduceMotion)
@@ -73,7 +75,7 @@ struct SettingsView: View {
                 Button("完成") { dismiss() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24).frame(width: 560, height: 340)
+        .padding(24).frame(width: 560, height: 440)
         .background(Palette.background)
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(
@@ -108,7 +110,8 @@ struct DiagnosticsView: View {
                     row("虚拟接口", store.interfaceName ?? "尚未创建")
                     row("对端握手", store.lastHandshake.map { $0.formatted(date: .omitted, time: .standard) } ?? "尚未观测到")
                     row("路由", store.selectedConfiguration?.routeSummary ?? "尚无配置")
-                    row("DNS", store.selectedConfiguration?.dns.joined(separator: ", ") ?? "未指定")
+                    row("配置 DNS", store.selectedConfiguration?.dns.joined(separator: ", ") ?? "未指定")
+                    row("DNS 设置", store.useTunnelDNS ? "使用隧道 DNS · 下次连接生效" : "保留系统 DNS · 下次连接生效")
                 }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 10))
                 if !store.errorMessage.isEmpty { Text(store.errorMessage).font(.system(size: 12)).foregroundStyle(Palette.amber) }
             } else if tab == 1 {

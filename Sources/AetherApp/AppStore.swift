@@ -68,6 +68,7 @@ struct UserAlert: Identifiable {
     var toast: String?
     var showStatusText: Bool { didSet { UserDefaults.standard.set(showStatusText, forKey: "showStatusText") } }
     var reduceMotion: Bool { didSet { UserDefaults.standard.set(reduceMotion, forKey: "reduceMotion") } }
+    var useTunnelDNS: Bool { didSet { if !isDemo { UserDefaults.standard.set(useTunnelDNS, forKey: "useTunnelDNS") } } }
     var demoFailure = false
     @ObservationIgnored let repository = ProfileRepository()
     @ObservationIgnored let engine = WireGuardEngine()
@@ -84,6 +85,7 @@ struct UserAlert: Identifiable {
     init() {
         showStatusText = UserDefaults.standard.bool(forKey: "showStatusText")
         reduceMotion = UserDefaults.standard.bool(forKey: "reduceMotion")
+        useTunnelDNS = UserDefaults.standard.bool(forKey: "useTunnelDNS")
         if CommandLine.arguments.contains("--demo") { enableDemo() } else { loadProfiles() }
         monitor = Task { [weak self] in
             guard let self else { return }
@@ -208,7 +210,7 @@ struct UserAlert: Identifiable {
         }
         guard toolsIssue == nil else { phase = .failure; errorMessage = toolsIssue ?? "引擎不可用"; return }
         do {
-            let started = try await engine.start(profileID: id, configuration: config)
+            let started = try await engine.start(profileID: id, configuration: config, useTunnelDNS: useTunnelDNS)
             session = started; interfaceName = started.interfaceName; log("已创建 \(started.interfaceName)，等待对端握手")
             phase = started.startupIncomplete ? .failure : .awaitingHandshake
             if started.startupIncomplete { errorMessage = "启动未完成，请断开隧道后检查配置与引擎" }

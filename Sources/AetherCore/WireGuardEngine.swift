@@ -142,7 +142,7 @@ public actor WireGuardEngine {
         }
         return helperURL() == nil || Bundle.main.url(forResource: "install-helper", withExtension: "sh") == nil ? "未找到连接服务组件。请使用完整 Aether.app。" : nil
     }
-    public func start(profileID: UUID, configuration: WGConfiguration) async throws -> TunnelSession {
+    public func start(profileID: UUID, configuration: WGConfiguration, useTunnelDNS: Bool = false) async throws -> TunnelSession {
         guard !busy, current == nil else { throw EngineError.operationFailed }
         if let issue = availabilityIssue() { throw EngineError.unavailable(issue) }
         guard helperURL() != nil else { throw EngineError.operationFailed }
@@ -151,7 +151,8 @@ public actor WireGuardEngine {
         let id = UUID()
         try ensureUserDirectory()
         let input = root.appendingPathComponent("\(id.uuidString).conf")
-        try secureWrite(Data(configuration.canonicalText.utf8), to: input)
+        let runtimeConfiguration = try configuration.forConnection(useTunnelDNS: useTunnelDNS)
+        try secureWrite(Data(runtimeConfiguration.canonicalText.utf8), to: input)
         defer { try? FileManager.default.removeItem(at: input) }
         let output = try await PrivilegedServiceClient.perform("start", sessionID: id, profileID: profileID, configurationPath: input.path)
         guard let session = try? JSONDecoder().decode(TunnelSession.self, from: Data(output.utf8)), session.id == id, session.profileID == profileID, EngineUtilities.valid(session) else { throw EngineError.operationFailed }

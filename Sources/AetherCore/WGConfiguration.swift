@@ -39,6 +39,14 @@ public struct WGConfiguration: Sendable {
             return line
         }.joined(separator: "\n")
     }
+    /// 只改变本次连接的副本；原始配置与钥匙串中的 DNS 保持不变。
+    public func forConnection(useTunnelDNS: Bool = false) throws -> WGConfiguration {
+        guard !useTunnelDNS, !dns.isEmpty else { return self }
+        let text = canonicalText.components(separatedBy: "\n")
+            .filter { !$0.hasPrefix("DNS = ") }.joined(separator: "\n")
+        return try WGConfiguration(text: text)
+    }
+
     public var warnings: [String] {
         peers.enumerated().compactMap { index, peer in
             peer.endpoint == nil ? "Peer \(index + 1) 未设置 Endpoint；只有在对端先联系本机后才能建立连接。" : nil
