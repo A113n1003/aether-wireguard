@@ -1,0 +1,36 @@
+CHANGELOG.md
+  h_b7c82d08e6de7b 7-8
+README.en.md
+  h_b7c82d08e6de7b 86
+README.md
+  h_b7c82d08e6de7b 113
+Scripts/ConfigurationChecks.swift
+  h_b7c82d08e6de7b 74-87
+Sources/AetherApp/AppStore.swift
+  h_b7c82d08e6de7b 71,88,213
+Sources/AetherApp/SupportingViews.swift
+  h_b7c82d08e6de7b 53,60-61,78,113-114
+Sources/AetherCore/WGConfiguration.swift
+  h_b7c82d08e6de7b 42-49
+Sources/AetherCore/WireGuardEngine.swift
+  h_b7c82d08e6de7b 145,154-155
+Tests/AetherCoreTests/ConfigurationTests.swift
+  h_b7c82d08e6de7b 18-31
+docs/configuration.md
+  h_b7c82d08e6de7b 11,68-73
+docs/validation.md
+  h_b7c82d08e6de7b 25-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "055e0b422e5168a520a3938cfc1af3d56c398568",
+  "prompts": {},
+  "humans": {
+    "h_b7c82d08e6de7b": {
+      "author": "A113n1003 <19275738+A113n1003@users.noreply.github.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
