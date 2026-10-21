@@ -44,7 +44,7 @@ final class AetherWindow: NSWindow {
         window.center()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = statusImage()
+            button.image = statusImage(connected: store.phase == .established)
             button.imagePosition = .imageLeft
             button.target = self
             button.action = #selector(togglePopover)
@@ -62,19 +62,27 @@ final class AetherWindow: NSWindow {
         showMain()
         if CommandLine.arguments.contains("--show-popover") { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.togglePopover() } }
     }
-    func statusImage() -> NSImage {
+    func statusImage(connected: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
             NSColor.black.setFill()
             let left = NSBezierPath(); left.move(to: NSPoint(x: 9, y: 17)); left.line(to: NSPoint(x: 1, y: 2)); left.line(to: NSPoint(x: 5, y: 3)); left.line(to: NSPoint(x: 11, y: 13)); left.close(); left.fill()
             let right = NSBezierPath(); right.move(to: NSPoint(x: 10, y: 10)); right.line(to: NSPoint(x: 17, y: 2)); right.line(to: NSPoint(x: 12, y: 3)); right.line(to: NSPoint(x: 7, y: 7)); right.close(); right.fill()
+            if connected, let check = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil) {
+                let badge = NSRect(x: 9, y: 0, width: 9, height: 9)
+                NSColor.white.setFill(); NSBezierPath(ovalIn: badge.insetBy(dx: 1, dy: 1)).fill()
+                let tinted = check.withSymbolConfiguration(.init(paletteColors: [.systemGreen])) ?? check
+                tinted.draw(in: badge)
+            }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = !connected
         return image
     }
     func refreshStatus() {
         guard let button = statusItem?.button else { return }
-        if store.showStatusText { button.title = "  ↓ \(AppStore.rate(store.downloadRate))"; button.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium) }
+        let connected = store.phase == .established
+        button.image = statusImage(connected: connected)
+        if store.showStatusText && connected { button.title = "  ↓ \(AppStore.rate(store.downloadRate))"; button.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium) }
         else { button.title = "" }
         button.toolTip = "Aether · \(store.phase.title)\(store.isDemo ? " · 演示" : "")"
     }

@@ -1,0 +1,73 @@
+name: Rolling Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rolling-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          swift --version
+      - name: SwiftPM tests
+        run: swift test
+      - name: Build release assets
+        run: |
+          source Scripts/common.sh
+          project="$PWD"
+          load_version
+          Scripts/release.sh
+          notes="docs/release-notes-v$version.md"
+          [ -s "$notes" ] && cp "$notes" dist/RELEASE_NOTES.md || printf '# Aether 滚动构建\n\nmain 分支最新提交的自动构建，ad-hoc 签名，仅供开发预览。\n' > dist/RELEASE_NOTES.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rolling-assets
+          path: |
+            dist/Aether-v*-macos-arm64.zip
+            dist/SHA256SUMS
+            dist/RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Publish rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          gh run download "$RUN_ID" --name rolling-assets --dir dist
+          (cd dist && sha256sum -c SHA256SUMS)
+          tag="rolling-main"
+          # 用固定滚动标签：先删旧 release 与标签，再以当前提交重建，确保 latest 始终指向最新 main。
+          gh release delete "$tag" --cleanup-tag --yes || true
+          gh release create "$tag" \
+            dist/Aether-v*-macos-arm64.zip dist/SHA256SUMS \
+            --target "$COMMIT_SHA" \
+            --title "Aether · main 滚动构建 (${COMMIT_SHA:0:7})" \
+            --notes-file dist/RELEASE_NOTES.md --prerelease --latest=false
